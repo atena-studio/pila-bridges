@@ -66,9 +66,24 @@ local function extract(pilaId, ownerRef)
     return ok, err
 end
 
+-- Destroy a pila: drop the engine item + the identity row, AND clear the body-row mirror if it was sleeved
+-- (so a destroyed pila never leaves a dangling custodia_bodies.pila_id). Capture the containing body BEFORE
+-- the engine destroy (after it the location is gone), mirror-clear after — symmetric with sleeve (sets the
+-- mirror) / extract (clears it). The std-custodia call is gated + pcall'd: a transient leaves the mirror to
+-- the body's own removal (custodiaRemove drops the row anyway), never a crash.
 local function destroy(id)
     if not id then return false, 'no-id' end
-    if GetResourceState('std-inventory') == 'started' then pcall(function() exports['std-inventory']:inventoryDestroy(id) end) end
+    local bodyId
+    if GetResourceState('std-inventory') == 'started' then
+        pcall(function()
+            local cur = exports['std-inventory']:inventoryGet(id)
+            bodyId = cur and cur.loc and cur.loc.parent or nil   -- the custodia this pila is sleeved in, if any
+            exports['std-inventory']:inventoryDestroy(id)
+        end)
+    end
+    if bodyId and GetResourceState('std-custodia') == 'started' then
+        pcall(function() exports['std-custodia']:custodiaSetPila(bodyId, false) end)
+    end
     if GetResourceState('std-pila') == 'started' then return exports['std-pila']:pilaDestroy(id) end
     return false, 'down'
 end
